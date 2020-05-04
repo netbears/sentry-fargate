@@ -1,0 +1,877 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: An example CloudFormation template for Fargate.
+
+Parameters:
+
+  PostgresUsername:
+    Type: String
+    Default: sentry
+
+  PostgresDBName:
+    Type: String
+    Default: sentry
+
+  PostgresPassword:
+    Type: String
+    NoEcho: true
+    Default: Sentry123!
+
+  PostgresInstanceClass:
+    Type: String
+    Default: db.t3.medium
+    AllowedValues:
+    - db.t3.small
+    - db.t3.medium
+    - db.t3.large
+    - db.r4.large
+    - db.r4.xlarge
+    - db.r4.2xlarge
+    - db.r4.4xlarge
+    - db.r4.8xlarge
+    - db.r4.16xlarge
+    - db.r5.large
+    - db.r5.xlarge
+    - db.r5.2xlarge
+    - db.r5.4xlarge
+    - db.r5.12xlarge
+
+  RedisInstanceClass:
+    Type: String
+    Default: cache.t2.medium
+    AllowedValues:
+    - cache.t2.small
+    - cache.t2.medium
+    - cache.t2.large
+    - cache.r4.large
+    - cache.r4.xlarge
+    - cache.r4.2xlarge
+    - cache.r4.4xlarge
+    - cache.r4.8xlarge
+    - cache.r4.16xlarge
+    - cache.r5.large
+    - cache.r5.xlarge
+    - cache.r5.2xlarge
+    - cache.r5.4xlarge
+    - cache.r5.12xlarge
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+
+  SubnetContainer:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Use at least 2
+
+  SubnetLoadBalancer:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Use at least 2
+
+  LoadBalancerType:
+    Type: String
+    Default: internal
+    AllowedValues:
+      - internal
+      - internet-facing
+
+  SslLoadBalancer:
+    Type: String
+
+  Image:
+    Type: String
+    Default: netbears/sentry:latest
+
+  DnsZone:
+    Type: AWS::Route53::HostedZone::Id
+
+  DnsRecord:
+    Type: String
+
+  SentrySecretKey:
+    Type: String
+    NoEcho: true
+
+  SentryServerEmail:
+    Type: String
+    Default: sentry@netbears.com
+
+  SentryEmailHost:
+    Type: String
+    Default: email-smtp.eu-west-1.amazonaws.com
+
+  SentryEmailPort:
+    Type: String
+    Default: '587'
+
+  SentryEmailUseTls:
+    Type: String
+    Default: 'True'
+
+  SentryEmailUser:
+    Type: String
+
+  SentryEmailPassword:
+    Type: String
+    NoEcho: true
+
+  SentryAuthLdapServerUri:
+    Type: String
+    Default: 'ldap://ldap.utilities.ad.com:389'
+
+  SentryAuthLdapBindDn:
+    Type: String
+    Default: CN=Sentry,OU=SystemUsers,OU=Users,DC=ad,DC=com
+
+  SentryAuthLdapBindPassword:
+    Type: String
+    Default: RandomPass123!
+    NoEcho: true
+
+  SentryAuthLdapUserSearch:
+    Type: String
+    Default: OU=Users,dc=ad,dc=com
+
+  SentryAuthLdapGroupSearch:
+    Type: String
+    Default: OU=Groups,DC=ad,DC=com
+
+  SentryAuthLdapRequireGroup:
+    Type: String
+    Default: CN=SentryAccess,OU=Groups,DC=ad,DC=com
+
+  SentryTaskCount:
+    Type: String
+    Default: '0'
+
+  SlackClientId:
+    Type: String
+
+  SlackClientSecret:
+    Type: String
+    NoEcho: true
+
+  SlackVerificationToken:
+    Type: String
+    NoEcho: true
+
+Resources:
+
+  SentryBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: False
+        BlockPublicPolicy: False
+        IgnorePublicAcls: False
+        RestrictPublicBuckets: False
+
+  RdsVpcSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription:
+        Fn::Sub: ${AWS::StackName}-RdsVpcSecurityGroup
+      VpcId:
+        Ref: VpcId
+
+  RdsVpcSecurityGroupIngressRule:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      IpProtocol: tcp
+      FromPort: 5432
+      ToPort: 5432
+      CidrIp: 0.0.0.0/0
+      GroupId:
+        Fn::GetAtt: RdsVpcSecurityGroup.GroupId
+
+  RDSSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties: 
+      DBSubnetGroupDescription:
+        Fn::Sub: ${AWS::StackName}-DBSubnetGroup
+      SubnetIds:
+        Ref: SubnetContainer
+
+  RDSInstance:
+    Type: AWS::RDS::DBInstance
+    Properties: 
+      AllowMajorVersionUpgrade: true
+      AutoMinorVersionUpgrade: true
+      AllocatedStorage: 100
+      StorageEncrypted: true
+      DBInstanceClass:
+        Ref: PostgresInstanceClass
+      DBSubnetGroupName:
+        Ref: RDSSubnetGroup
+      Engine: postgres
+      EngineVersion: '9.6.14'
+      MasterUsername:
+        Ref: PostgresUsername
+      MasterUserPassword:
+        Ref: PostgresPassword
+      DBName:
+        Ref: PostgresDBName
+      MultiAZ: false
+      PubliclyAccessible: false
+      VPCSecurityGroups:
+        - Ref: RdsVpcSecurityGroup
+
+  RedisVpcSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription:
+        Fn::Sub: ${AWS::StackName}-RedisVpcSecurityGroup
+      VpcId:
+        Ref: VpcId
+
+  RedisVpcSecurityGroupIngressRule:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      IpProtocol: tcp
+      FromPort: 6379
+      ToPort: 6379
+      CidrIp: 0.0.0.0/0
+      GroupId:
+        Fn::GetAtt: RedisVpcSecurityGroup.GroupId
+
+  RedisSubnetGroup:
+    Type: AWS::ElastiCache::SubnetGroup
+    Properties: 
+      CacheSubnetGroupName:
+        Fn::Sub: ${AWS::StackName}-RedisSubnetGroup
+      SubnetIds:
+        Ref: SubnetContainer
+      Description:
+        Fn::Sub: ${AWS::StackName}-RedisSubnetGroup
+
+  RedisInstance:
+    Type: AWS::ElastiCache::CacheCluster
+    Properties: 
+      Engine: redis
+      CacheNodeType:
+        Ref: RedisInstanceClass
+      NumCacheNodes: 1
+      CacheParameterGroupName: default.redis3.2
+      EngineVersion: '3.2.10'
+      Port: 6379
+      CacheSubnetGroupName:
+        Ref: RedisSubnetGroup
+      VpcSecurityGroupIds:
+        - Ref: RedisVpcSecurityGroup
+
+  Cluster:
+    Type: AWS::ECS::Cluster
+
+  LogGroupWeb:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 14
+
+  TaskDefinitionWeb:
+    Type: AWS::ECS::TaskDefinition
+    DependsOn: LogGroupWeb
+    Properties:
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: 1024
+      Memory: 3GB
+      ExecutionRoleArn:
+        Fn::GetAtt: ExecutionRole.Arn
+      TaskRoleArn:
+        Fn::GetAtt: TaskRole.Arn
+      ContainerDefinitions:
+        - Name: sentry
+          Image:
+            Ref: Image
+          PortMappings:
+            - ContainerPort: 9000
+          Environment:
+            - Name: SENTRY_POSTGRES_HOST
+              Value:
+                Fn::GetAtt: RDSInstance.Endpoint.Address
+            - Name: SENTRY_POSTGRES_PORT
+              Value:
+                Fn::GetAtt: RDSInstance.Endpoint.Port
+            - Name: SENTRY_DB_USER
+              Value:
+                Ref: PostgresUsername
+            - Name: SENTRY_DB_PASSWORD
+              Value:
+                Ref: PostgresPassword
+            - Name: SENTRY_DB_NAME
+              Value:
+                Ref: PostgresDBName
+            - Name: SENTRY_SECRET_KEY
+              Value:
+                Ref: SentrySecretKey
+            - Name: SENTRY_REDIS_HOST
+              Value:
+                Fn::GetAtt: RedisInstance.RedisEndpoint.Address
+            - Name: SENTRY_REDIS_PORT
+              Value:
+                Fn::GetAtt: RedisInstance.RedisEndpoint.Port
+            - Name: SENTRY_SERVER_EMAIL
+              Value:
+                Ref: SentryServerEmail
+            - Name: SENTRY_EMAIL_HOST
+              Value:
+                Ref: SentryEmailHost
+            - Name: SENTRY_EMAIL_PORT
+              Value:
+                Ref: SentryEmailPort
+            - Name: SENTRY_EMAIL_USE_TLS
+              Value:
+                Ref: SentryEmailUseTls
+            - Name: SENTRY_EMAIL_USER
+              Value:
+                Ref: SentryEmailUser
+            - Name: SENTRY_EMAIL_PASSWORD
+              Value:
+                Ref: SentryEmailPassword
+            - Name: SENTRY_FILESTORE_BUCKET_NAME
+              Value:
+                Ref: SentryBucket
+            - Name: SENTRY_AUTH_LDAP_SERVER_URI
+              Value:
+                Ref: SentryAuthLdapServerUri
+            - Name: SENTRY_AUTH_LDAP_BIND_DN
+              Value:
+                Ref: SentryAuthLdapBindDn
+            - Name: SENTRY_AUTH_LDAP_BIND_PASSWORD
+              Value:
+                Ref: SentryAuthLdapBindPassword
+            - Name: SENTRY_AUTH_LDAP_USER_SEARCH
+              Value:
+                Ref: SentryAuthLdapUserSearch
+            - Name: SENTRY_AUTH_LDAP_GROUP_SEARCH
+              Value:
+                Ref: SentryAuthLdapGroupSearch
+            - Name: SENTRY_AUTH_LDAP_REQUIRE_GROUP
+              Value:
+                Ref: SentryAuthLdapRequireGroup
+            - Name: SLACK_CLIENT_ID
+              Value:
+                Ref: SlackClientId
+            - Name: SLACK_CLIENT_SECRET
+              Value:
+                Ref: SlackClientSecret
+            - Name: SLACK_VERIFICATION_TOKEN
+              Value:
+                Ref: SlackVerificationToken
+            - Name: AWS_DEFAULT_REGION
+              Value:
+                Ref: AWS::Region
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region:
+                Ref: AWS::Region
+              awslogs-group:
+                Ref: LogGroupWeb
+              awslogs-stream-prefix: ecs
+
+  ServiceWeb:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - ListenerHTTPS
+    Properties: 
+      Cluster:
+        Ref: Cluster
+      TaskDefinition:
+        Ref: TaskDefinitionWeb
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+      DesiredCount:
+        Ref: SentryTaskCount
+      HealthCheckGracePeriodSeconds: 60000
+      LaunchType: FARGATE
+      NetworkConfiguration: 
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            Ref: SubnetContainer
+          SecurityGroups:
+            - Ref: ContainerSecurityGroup
+      LoadBalancers:
+        - ContainerName: sentry
+          ContainerPort: 9000
+          TargetGroupArn:
+            Ref: TargetGroup
+
+  LogGroupCron:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 14
+
+  TaskDefinitionCron:
+    Type: AWS::ECS::TaskDefinition
+    DependsOn: LogGroupCron
+    Properties:
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: 1024
+      Memory: 3GB
+      ExecutionRoleArn:
+        Fn::GetAtt: ExecutionRole.Arn
+      TaskRoleArn:
+        Fn::GetAtt: TaskRole.Arn
+      ContainerDefinitions:
+        - Name: sentry
+          EntryPoint: ['sentry','run', 'cron']
+          Image:
+            Ref: Image
+          PortMappings:
+            - ContainerPort: 9000
+          Environment:
+            - Name: SENTRY_POSTGRES_HOST
+              Value:
+                Fn::GetAtt: RDSInstance.Endpoint.Address
+            - Name: SENTRY_POSTGRES_PORT
+              Value:
+                Fn::GetAtt: RDSInstance.Endpoint.Port
+            - Name: SENTRY_DB_USER
+              Value:
+                Ref: PostgresUsername
+            - Name: SENTRY_DB_PASSWORD
+              Value:
+                Ref: PostgresPassword
+            - Name: SENTRY_DB_NAME
+              Value:
+                Ref: PostgresDBName
+            - Name: SENTRY_SECRET_KEY
+              Value:
+                Ref: SentrySecretKey
+            - Name: SENTRY_REDIS_HOST
+              Value:
+                Fn::GetAtt: RedisInstance.RedisEndpoint.Address
+            - Name: SENTRY_REDIS_PORT
+              Value:
+                Fn::GetAtt: RedisInstance.RedisEndpoint.Port
+            - Name: SENTRY_SERVER_EMAIL
+              Value:
+                Ref: SentryServerEmail
+            - Name: SENTRY_EMAIL_HOST
+              Value:
+                Ref: SentryEmailHost
+            - Name: SENTRY_EMAIL_PORT
+              Value:
+                Ref: SentryEmailPort
+            - Name: SENTRY_EMAIL_USE_TLS
+              Value:
+                Ref: SentryEmailUseTls
+            - Name: SENTRY_EMAIL_USER
+              Value:
+                Ref: SentryEmailUser
+            - Name: SENTRY_EMAIL_PASSWORD
+              Value:
+                Ref: SentryEmailPassword
+            - Name: SENTRY_FILESTORE_BUCKET_NAME
+              Value:
+                Ref: SentryBucket
+            - Name: SENTRY_AUTH_LDAP_SERVER_URI
+              Value:
+                Ref: SentryAuthLdapServerUri
+            - Name: SENTRY_AUTH_LDAP_BIND_DN
+              Value:
+                Ref: SentryAuthLdapBindDn
+            - Name: SENTRY_AUTH_LDAP_BIND_PASSWORD
+              Value:
+                Ref: SentryAuthLdapBindPassword
+            - Name: SENTRY_AUTH_LDAP_USER_SEARCH
+              Value:
+                Ref: SentryAuthLdapUserSearch
+            - Name: SENTRY_AUTH_LDAP_GROUP_SEARCH
+              Value:
+                Ref: SentryAuthLdapGroupSearch
+            - Name: SENTRY_AUTH_LDAP_REQUIRE_GROUP
+              Value:
+                Ref: SentryAuthLdapRequireGroup
+            - Name: SLACK_CLIENT_ID
+              Value:
+                Ref: SlackClientId
+            - Name: SLACK_CLIENT_SECRET
+              Value:
+                Ref: SlackClientSecret
+            - Name: SLACK_VERIFICATION_TOKEN
+              Value:
+                Ref: SlackVerificationToken
+            - Name: AWS_DEFAULT_REGION
+              Value:
+                Ref: AWS::Region
+            - Name: C_FORCE_ROOT
+              Value: "true"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region:
+                Ref: AWS::Region
+              awslogs-group:
+                Ref: LogGroupCron
+              awslogs-stream-prefix: ecs
+
+  ServiceCron:
+    Type: AWS::ECS::Service
+    Properties: 
+      Cluster:
+        Ref: Cluster
+      TaskDefinition:
+        Ref: TaskDefinitionCron
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+      DesiredCount:
+        Ref: SentryTaskCount
+      LaunchType: FARGATE
+      NetworkConfiguration: 
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            Ref: SubnetContainer
+          SecurityGroups:
+            - Ref: ContainerSecurityGroup
+
+  LogGroupWorker:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 14
+
+  TaskDefinitionWorker:
+    Type: AWS::ECS::TaskDefinition
+    DependsOn: LogGroupWorker
+    Properties:
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: 1024
+      Memory: 3GB
+      ExecutionRoleArn:
+        Fn::GetAtt: ExecutionRole.Arn
+      TaskRoleArn:
+        Fn::GetAtt: TaskRole.Arn
+      ContainerDefinitions:
+        - Name: sentry
+          EntryPoint: ['sentry','run', 'worker']
+          Image:
+            Ref: Image
+          PortMappings:
+            - ContainerPort: 9000
+          Environment:
+            - Name: SENTRY_POSTGRES_HOST
+              Value:
+                Fn::GetAtt: RDSInstance.Endpoint.Address
+            - Name: SENTRY_POSTGRES_PORT
+              Value:
+                Fn::GetAtt: RDSInstance.Endpoint.Port
+            - Name: SENTRY_DB_USER
+              Value:
+                Ref: PostgresUsername
+            - Name: SENTRY_DB_PASSWORD
+              Value:
+                Ref: PostgresPassword
+            - Name: SENTRY_DB_NAME
+              Value:
+                Ref: PostgresDBName
+            - Name: SENTRY_SECRET_KEY
+              Value:
+                Ref: SentrySecretKey
+            - Name: SENTRY_REDIS_HOST
+              Value:
+                Fn::GetAtt: RedisInstance.RedisEndpoint.Address
+            - Name: SENTRY_REDIS_PORT
+              Value:
+                Fn::GetAtt: RedisInstance.RedisEndpoint.Port
+            - Name: SENTRY_SERVER_EMAIL
+              Value:
+                Ref: SentryServerEmail
+            - Name: SENTRY_EMAIL_HOST
+              Value:
+                Ref: SentryEmailHost
+            - Name: SENTRY_EMAIL_PORT
+              Value:
+                Ref: SentryEmailPort
+            - Name: SENTRY_EMAIL_USE_TLS
+              Value:
+                Ref: SentryEmailUseTls
+            - Name: SENTRY_EMAIL_USER
+              Value:
+                Ref: SentryEmailUser
+            - Name: SENTRY_EMAIL_PASSWORD
+              Value:
+                Ref: SentryEmailPassword
+            - Name: SENTRY_FILESTORE_BUCKET_NAME
+              Value:
+                Ref: SentryBucket
+            - Name: SENTRY_AUTH_LDAP_SERVER_URI
+              Value:
+                Ref: SentryAuthLdapServerUri
+            - Name: SENTRY_AUTH_LDAP_BIND_DN
+              Value:
+                Ref: SentryAuthLdapBindDn
+            - Name: SENTRY_AUTH_LDAP_BIND_PASSWORD
+              Value:
+                Ref: SentryAuthLdapBindPassword
+            - Name: SENTRY_AUTH_LDAP_USER_SEARCH
+              Value:
+                Ref: SentryAuthLdapUserSearch
+            - Name: SENTRY_AUTH_LDAP_GROUP_SEARCH
+              Value:
+                Ref: SentryAuthLdapGroupSearch
+            - Name: SENTRY_AUTH_LDAP_REQUIRE_GROUP
+              Value:
+                Ref: SentryAuthLdapRequireGroup
+            - Name: SLACK_CLIENT_ID
+              Value:
+                Ref: SlackClientId
+            - Name: SLACK_CLIENT_SECRET
+              Value:
+                Ref: SlackClientSecret
+            - Name: SLACK_VERIFICATION_TOKEN
+              Value:
+                Ref: SlackVerificationToken
+            - Name: AWS_DEFAULT_REGION
+              Value:
+                Ref: AWS::Region
+            - Name: C_FORCE_ROOT
+              Value: "true"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region:
+                Ref: AWS::Region
+              awslogs-group:
+                Ref: LogGroupWorker
+              awslogs-stream-prefix: ecs
+
+  ServiceWorker:
+    Type: AWS::ECS::Service
+    Properties: 
+      Cluster:
+        Ref: Cluster
+      TaskDefinition:
+        Ref: TaskDefinitionWorker
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+      DesiredCount:
+        Ref: SentryTaskCount
+      LaunchType: FARGATE
+      NetworkConfiguration: 
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            Ref: SubnetContainer
+          SecurityGroups:
+            - Ref: ContainerSecurityGroup
+
+  # A role needed by ECS
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName:
+        Fn::Sub: ${AWS::StackName}-ExecutionRole
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+      Policies:
+        - PolicyName:
+            Fn::Sub: ${AWS::StackName}-CloudWatch
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudwatch:*
+                Resource: "*"
+        - PolicyName:
+            Fn::Sub: ${AWS::StackName}-Logs
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:*
+                Resource: "*"
+        - PolicyName:
+            Fn::Sub: ${AWS::StackName}-S3
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:*
+                Resource: "*"
+
+  # A role for the containers
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName:
+        Fn::Sub: ${AWS::StackName}-TaskRole
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName:
+            Fn::Sub: ${AWS::StackName}-CloudWatch
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudwatch:*
+                Resource: "*"
+        - PolicyName:
+            Fn::Sub: ${AWS::StackName}-Logs
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:*
+                Resource: "*"
+        - PolicyName:
+            Fn::Sub: ${AWS::StackName}-S3
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:*
+                Resource: "*"
+
+  ContainerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription:
+        Fn::Sub: ${AWS::StackName}-ContainerSecurityGroup
+      VpcId:
+        Ref: VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 9000
+          ToPort: 9000
+          SourceSecurityGroupId:
+            Ref: LoadBalancerSecurityGroup
+
+
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription:
+        Fn::Sub: ${AWS::StackName}-LoadBalancerSecurityGroup
+      VpcId:
+        Ref: VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: /auth/login/sentry/
+      HealthCheckTimeoutSeconds: 5
+      UnhealthyThresholdCount: 10
+      HealthyThresholdCount: 2
+      Port: 9000
+      Protocol: HTTP
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: 30
+      TargetType: ip
+      VpcId:
+        Ref: VpcId
+
+  ListenerHTTP:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - TargetGroupArn:
+            Ref: TargetGroup
+          Type: forward
+      LoadBalancerArn:
+        Ref: LoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  ListenerHTTPS:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - TargetGroupArn:
+            Ref: TargetGroup
+          Type: forward
+      LoadBalancerArn:
+        Ref: LoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn:
+            Ref: SslLoadBalancer
+
+  HttpRedirectHttps:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+      - Type: redirect
+        RedirectConfig:
+          Protocol: HTTPS
+          Port: '443'
+          StatusCode: HTTP_301
+      Conditions:
+      - Field: path-pattern
+        Values:
+        - "*"
+      ListenerArn:
+        Ref: ListenerHTTP
+      Priority: 1
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      LoadBalancerAttributes:
+        # this is the default, but is specified here in case it needs to be changed
+        - Key: idle_timeout.timeout_seconds
+          Value: 30
+      # "internal" is also an option
+      Scheme:
+        Ref: LoadBalancerType
+      SecurityGroups:
+        - Ref: LoadBalancerSecurityGroup
+      Subnets:
+        Ref: SubnetLoadBalancer
+
+  Route53Record:
+    Type: AWS::Route53::RecordSetGroup
+    Properties:
+      HostedZoneId:
+        Ref: DnsZone
+      Comment: 
+        Fn::Sub: Route53-record-for-Sentry
+      RecordSets:
+      - Name:
+          Ref: DnsRecord
+        Type: A
+        AliasTarget:
+          HostedZoneId: 
+            Fn::GetAtt:
+              - LoadBalancer
+              - CanonicalHostedZoneID
+          DNSName: 
+            Fn::GetAtt:
+              - LoadBalancer
+              - DNSName
+  
+Outputs:
+  Endpoint:
+    Description: Endpoint
+    Value:
+      Fn::Sub: "https://${DnsRecord}"
