@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: 2010-09-09
-Description: An example CloudFormation template for Fargate.
+Description: An example CloudFormation template for Sentry launched in Fargate
 
 Parameters:
 
@@ -149,6 +149,27 @@ Parameters:
     NoEcho: true
 
   SlackVerificationToken:
+    Type: String
+    NoEcho: true
+
+  GithubAppId:
+    Type: String
+
+  GithubAppName:
+    Type: String
+
+  GithubWebhookSecret:
+    Type: String
+    NoEcho: true
+
+  GithubAppSecret:
+    Type: String
+    NoEcho: true
+
+  GithubClientId:
+    Type: String
+
+  GithubClientSecret:
     Type: String
     NoEcho: true
 
@@ -356,6 +377,24 @@ Resources:
             - Name: SLACK_VERIFICATION_TOKEN
               Value:
                 Ref: SlackVerificationToken
+            - Name: GITHUB_APP_ID
+              Value:
+                Ref: GithubAppId
+            - Name: GITHUB_APP_NAME
+              Value:
+                Ref: GithubAppName
+            - Name: GITHUB_WEBHOOK_SECRET
+              Value:
+                Ref: GithubWebhookSecret
+            - Name: GITHUB_APP_SECRET
+              Value:
+                Ref: GithubAppSecret
+            - Name: GITHUB_CLIENT_ID
+              Value:
+                Ref: GithubClientId
+            - Name: GITHUB_CLIENT_SECRET
+              Value:
+                Ref: GithubClientSecret
             - Name: AWS_DEFAULT_REGION
               Value:
                 Ref: AWS::Region
@@ -495,6 +534,24 @@ Resources:
             - Name: SLACK_VERIFICATION_TOKEN
               Value:
                 Ref: SlackVerificationToken
+            - Name: GITHUB_APP_ID
+              Value:
+                Ref: GithubAppId
+            - Name: GITHUB_APP_NAME
+              Value:
+                Ref: GithubAppName
+            - Name: GITHUB_WEBHOOK_SECRET
+              Value:
+                Ref: GithubWebhookSecret
+            - Name: GITHUB_APP_SECRET
+              Value:
+                Ref: GithubAppSecret
+            - Name: GITHUB_CLIENT_ID
+              Value:
+                Ref: GithubClientId
+            - Name: GITHUB_CLIENT_SECRET
+              Value:
+                Ref: GithubClientSecret
             - Name: AWS_DEFAULT_REGION
               Value:
                 Ref: AWS::Region
@@ -628,6 +685,24 @@ Resources:
             - Name: SLACK_VERIFICATION_TOKEN
               Value:
                 Ref: SlackVerificationToken
+            - Name: GITHUB_APP_ID
+              Value:
+                Ref: GithubAppId
+            - Name: GITHUB_APP_NAME
+              Value:
+                Ref: GithubAppName
+            - Name: GITHUB_WEBHOOK_SECRET
+              Value:
+                Ref: GithubWebhookSecret
+            - Name: GITHUB_APP_SECRET
+              Value:
+                Ref: GithubAppSecret
+            - Name: GITHUB_CLIENT_ID
+              Value:
+                Ref: GithubClientId
+            - Name: GITHUB_CLIENT_SECRET
+              Value:
+                Ref: GithubClientSecret
             - Name: AWS_DEFAULT_REGION
               Value:
                 Ref: AWS::Region
