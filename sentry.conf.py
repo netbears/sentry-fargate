@@ -311,12 +311,12 @@ if slack:
 ######################
 github = env('GITHUB_APP_ID') and env('GITHUB_APP_NAME') and env('GITHUB_APP_SECRET') and env('GITHUB_CLIENT_ID') and env('GITHUB_CLIENT_SECRET')
 if github:
-    SENTRY_OPTIONS['github-app.id']: env('GITHUB_APP_ID')
-    SENTRY_OPTIONS['github-app.name']: env('GITHUB_APP_NAME')
-    SENTRY_OPTIONS['github-app.webhook-secret']: env('GITHUB_WEBHOOK_SECRET') # Use only if configured in GitHub
-    SENTRY_OPTIONS['github-app.private-key']: env("GITHUB_APP_SECRET") # Replace new lines with \n to preserve them.
-    SENTRY_OPTIONS['github-app.client-id']: env('GITHUB_CLIENT_ID')
-    SENTRY_OPTIONS['github-app.client-secret']: env('GITHUB_CLIENT_SECRET')
+    SENTRY_OPTIONS['github-app.id']= env('GITHUB_APP_ID')
+    SENTRY_OPTIONS['github-app.name']= env('GITHUB_APP_NAME')
+    SENTRY_OPTIONS['github-app.webhook-secret']= env('GITHUB_WEBHOOK_SECRET') # Use only if configured in GitHub
+    SENTRY_OPTIONS['github-app.private-key']= env("GITHUB_APP_SECRET") # Replace new lines with \n to preserve them.
+    SENTRY_OPTIONS['github-app.client-id']= env('GITHUB_CLIENT_ID')
+    SENTRY_OPTIONS['github-app.client-secret']= env('GITHUB_CLIENT_SECRET')
 
 # If this value ever becomes compromised, it's important to regenerate your
 # SENTRY_SECRET_KEY. Changing this value will result in all current sessions
